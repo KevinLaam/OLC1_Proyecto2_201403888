@@ -38,19 +38,7 @@
   margin-bottom: 15px;
 }
 
-.code-editor {
-  width: 100%;
-  height: 400px;
-  padding: 15px;
-  background-color: #0f172a;
-  color: #e5e7eb;
-  border: 1px solid #374151;
-  border-radius: 8px;
-  font-family: Consolas, monospace;
-  font-size: 14px;
-  resize: vertical;
-  box-sizing: border-box;
-}
+
 
 button {
   margin-top: 15px;
@@ -81,4 +69,199 @@ button:hover {
   .workspace {
     grid-template-columns: 1fr;
   }
+}
+
+/*para la tabla de tokens */
+.tokens-section {
+  margin-top: 25px;
+}
+
+.table-container {
+  width: 100%;
+  max-height: 350px;
+  overflow: auto;
+  border: 1px solid #374151;
+  border-radius: 8px;
+}
+
+.tokens-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.tokens-table th,
+.tokens-table td {
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid #374151;
+}
+
+.tokens-table th {
+  background-color: #0f172a;
+  color: #38bdf8;
+  position: sticky;
+  top: 0;
+}
+
+.tokens-table td {
+  color: #e5e7eb;
+  overflow-wrap: anywhere;
+}
+
+.tokens-table tbody tr:hover {
+  background-color: #334155;
+}
+
+para tabla de errores 
+
+.errors-section {
+  margin-top: 25px;
+}
+
+.no-errors {
+  padding: 15px;
+  background-color: #064e3b;
+  color: #a7f3d0;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+/*para el arbol de analisis sintactico */
+
+.ast-section {
+  margin-top: 25px;
+}
+
+.ast-container {
+  background-color: #020617;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 15px;
+  max-height: 400px;
+  overflow: auto;
+}
+
+.ast-container pre {
+  margin: 0;
+  color: #a5f3fc;
+  font-family: Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+/*para tabla de simbolos*/
+
+.symbols-section {
+  margin-top: 25px;
+}
+
+.empty-report {
+  padding: 15px;
+  background-color: #1e293b;
+  color: #cbd5e1;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+Para mostrar informacion de infraestructura 
+
+.infrastructure-section {
+  margin-top: 25px;
+}
+
+.infrastructure-section td div {
+  margin-bottom: 5px;
+}
+
+.infrastructure-section td strong {
+  color: #38bdf8;
+}
+
+/*para organizar el los reportes */
+
+.report-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #374151;
+  padding-bottom: 12px;
+}
+
+.tab-button {
+  margin-top: 0;
+  padding: 9px 13px;
+  background-color: #374151;
+  color: #cbd5e1;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tab-button:hover {
+  background-color: #475569;
+}
+
+.tab-button.active {
+  background-color: #0284c7;
+  color: white;
+  border-color: #38bdf8;
+}
+/*para los numeros en las cajas de texto*/
+
+
+.editor-container {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  width: 100%;
+  height: 400px;
+  background-color: #0f172a;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.editor-container .line-numbers {
+  display: block;
+  flex: 0 0 45px;
+  width: 45px;
+  min-width: 45px;
+  padding: 12px 8px;
+  margin: 0;
+  background-color: #111827;
+  color: #64748b;
+  text-align: right;
+  font-family: Consolas, monospace;
+  font-size: 13px;
+  line-height: 20px;
+  user-select: none;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.editor-container textarea.code-editor {
+  display: block;
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  height: 100%;
+  padding: 12px;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  outline: none;
+  resize: none;
+  background-color: #0f172a;
+  color: #f8fafc;
+  font-family: Consolas, monospace;
+  font-size: 13px;
+  line-height: 20px;
+  white-space: pre;
+  overflow: auto;
+  box-sizing: border-box;
 }
