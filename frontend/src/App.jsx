@@ -1,6 +1,7 @@
 
 import { useRef, useState } from "react";
 import "./App.css";
+import ASTGraph from "./components/ASTGraph";
 
 function App() {
   const [code, setCode] = useState(`server ServidorPrincipal {
@@ -24,6 +25,8 @@ main {
   const [activeTab, setActiveTab] = useState("console");
 
   const fileInputRef = useRef(null);
+
+  const [fileName, setFileName] = useState("programa_autoinfra.infra");
 
   //primera prueba de salida en interfaz grafica
   //const handleExecute = () => {
@@ -81,28 +84,27 @@ main {
   };
 
   
-  const handleOpenFile = async (event) => {
-    const file = event.target.files?.[0];
+  const handleOpenFile = (event) => {
+  const file = event.target.files[0];
 
-    if (!file) return;
+  if (!file) return;
 
-    try {
-      const content = await file.text();
-
-      setCode(content);
-      setOutput([]);
-      setAnalysisResult(null);
-      setActiveTab("console");
-
-    } catch (error) {
-      setOutput([
-        "No se pudo leer el archivo seleccionado.",
-        error.message
-      ]);
-    }
-
+  if (!file.name.toLowerCase().endsWith(".infra")) {
+    alert("Solo se permiten archivos .infra");
     event.target.value = "";
+    return;
+  }
+  setFileName(file.name);
+  const reader = new FileReader();
+
+  reader.onload = (e) => {
+    setCode(e.target.result);
   };
+
+  reader.readAsText(file);
+
+  event.target.value = "";
+};
 
     
   const handleSaveFile = () => {
@@ -117,8 +119,8 @@ main {
     // Crear un enlace de descarga
     const link = document.createElement("a");
     link.href = url;
-    link.download = "programa_autoinfra.txt";
-
+    //link.download = "programa_autoinfra.infra";
+    link.download = fileName;
     // Descargar el archivo
     document.body.appendChild(link);
     link.click();
@@ -128,12 +130,65 @@ main {
     URL.revokeObjectURL(url);
   };
 
+  
+  const handleSaveAsFile = () => {
+    // Solicitar el nombre del archivo
+    let fileName = window.prompt(
+      "Ingrese el nombre del archivo:",
+      "nuevo_programa"
+    );
+
+    // Si el usuario cancela
+    if (fileName === null) {
+      return;
+    }
+
+    fileName = fileName.trim();
+
+    // Validar que no esté vacío
+    if (fileName === "") {
+      alert("Debe ingresar un nombre para el archivo.");
+      return;
+    }
+
+    // Evitar caracteres inválidos en nombres de archivo
+    if (/[<>:"/\\|?*\x00-\x1F]/.test(fileName)) {
+      alert("El nombre contiene caracteres no permitidos.");
+      return;
+    }
+
+    // Agregar extensión .infra si no la tiene
+    if (!fileName.toLowerCase().endsWith(".infra")) {
+      fileName += ".infra";
+    }
+
+    setFileName(fileName);
+    // Crear el archivo con el contenido del editor
+    const blob = new Blob([code], {
+      type: "text/plain;charset=utf-8",
+    });
+
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    URL.revokeObjectURL(url);
+  };
+
+
 
   const handleClearEditor = () => {
     setCode("");
     setOutput([]);
     setAnalysisResult(null);
     setActiveTab("console");
+    setFileName("programa_autoinfra.infra");
   };
 
 
@@ -180,33 +235,36 @@ main {
           <input
             type="file"
             ref={fileInputRef}
-            accept=".txt,.ai"
+            //accept=".txt,.ai"
+            accept=".infra"
             onChange={handleOpenFile}
             style={{ display: "none" }}
           />
 
         
 
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            Abrir archivo
-
-          </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Abrir archivo
+            </button>
 
             <button type="button" onClick={handleSaveFile}>
-            Guardar archivo
+              Guardar archivo 
+            </button>
+
+            <button type="button" onClick={handleSaveAsFile}>
+              Guardar como
+            </button>
             
-          </button>
+            <button type="button" onClick={handleClearEditor}>
+              Limpiar
+            </button>
 
-             <button type="button" onClick={handleClearEditor}>
-          Limpiar
-        </button>
-
-          <button onClick={handleExecute}>
-            Ejecutar
-          </button>
+            <button onClick={handleExecute}>
+              Ejecutar
+            </button>
         </section>
 
      
@@ -348,6 +406,12 @@ main {
         {analysisResult?.ast && activeTab === "ast" && (
           <div className="ast-section">
             <h3>Árbol de Sintaxis Abstracta (AST)</h3>
+
+            <h4>Representación gráfica</h4>
+           
+            <ASTGraph ast={analysisResult.ast} />
+
+            <h4>Representación JSON</h4>
 
             <div className="ast-container">
               <pre>

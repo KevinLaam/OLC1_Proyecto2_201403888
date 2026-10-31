@@ -7,6 +7,10 @@ class Interpreter {
 
         //para reporte 
         this.variableTypes = new Map();
+        
+        // Pila de ámbitos locales
+        this.scopes = [];
+
 
         this.output = [];
 
@@ -21,6 +25,7 @@ class Interpreter {
     }
 
     
+   
     execute() {
 
         if (!this.ast || this.ast.type !== "Program") {
@@ -28,11 +33,14 @@ class Interpreter {
             return;
         }
 
-        // Primera pasada: registrar las tareas
+        // Primera pasada: registrar tareas, recursos,
+        // funciones y variables globales
         for (const declaration of this.ast.declarations) {
 
             if (declaration.type === "TaskDeclaration") {
+
                 this.registerTask(declaration);
+
             } else if (
                 declaration.type === "ServerDeclaration" ||
                 declaration.type === "ServiceDeclaration" ||
@@ -41,12 +49,16 @@ class Interpreter {
 
                 this.registerResource(declaration);
 
-            }else if (declaration.type === "FunctionDeclaration") {
+            } else if (declaration.type === "FunctionDeclaration") {
 
                 this.registerFunction(declaration);
 
-            }
+            } else if (declaration.type === "VariableDeclaration") {
 
+                // Registrar las variables globales
+                this.executeVariableDeclaration(declaration);
+
+            }
         }
 
         // Segunda pasada: buscar y ejecutar main
@@ -55,9 +67,7 @@ class Interpreter {
             if (declaration.type === "MainDeclaration") {
                 this.executeMain(declaration);
             }
-
         }
-
     }
 
         
@@ -91,7 +101,8 @@ class Interpreter {
 
     }
 
-    
+        
+        
     executeFunction(name, args) {
 
         const funcion = this.functions.get(name);
@@ -103,78 +114,115 @@ class Interpreter {
 
         this.log("Ejecutando función:", name);
 
-        // Guardar el entorno actual
-        const previousVariables = this.variables;
+        // Guardar los ámbitos del llamador
+        const previousScopes = this.scopes;
 
-        // Crear un entorno local para la función
-        this.variables = new Map(previousVariables);
+        // Aislar los ámbitos de esta función
+        this.scopes = [];
+
+        // Crear el ámbito local de la función
+        this.enterScope();
 
         try {
 
-            // Asignar los argumentos a los parámetros
+            const currentScope =
+                this.scopes[this.scopes.length - 1];
+
+            // Asignar argumentos a los parámetros
             for (let i = 0; i < funcion.parameters.length; i++) {
 
                 const parameter = funcion.parameters[i];
 
-                this.variables.set(
-                    parameter.name,
-                    args[i]
-                );
-
+                currentScope.set(parameter.name, args[i]);
             }
 
-            // Ejecutar las instrucciones de la función
+            // Ejecutar las instrucciones
             for (const instruction of funcion.body) {
 
                 const signal = this.executeStatement(instruction);
 
                 if (signal && signal.type === "return") {
 
-                    this.log(
-                        "Función retornó:",
-                        signal.value
-                    );
+                    this.log("Función retornó:", signal.value);
 
                     return signal.value;
                 }
-
             }
 
             return null;
 
         } finally {
 
-            // Restaurar las variables del entorno anterior
-            this.variables = previousVariables;
+            // Cerrar el ámbito de la función
+            this.exitScope();
 
+            // Restaurar los ámbitos del llamador
+            this.scopes = previousScopes;
         }
-
     }
 
+    
     
     registerResource(declaration) {
 
         const properties = {};
 
-        // Evaluar las propiedades del recurso
+        // Identificar el tipo de recurso
+        let resourceType = null;
+
+        switch (declaration.type) {
+
+            case "ServerDeclaration":
+                resourceType = "server";
+                break;
+
+            case "ServiceDeclaration":
+                resourceType = "service";
+                break;
+
+            case "DatabaseDeclaration":
+                resourceType = "database";
+                break;
+
+            default:
+                this.log(
+                    "Error: tipo de recurso no reconocido:",
+                    declaration.type
+                );
+                return;
+        }
+
+        // Evaluar las propiedades declaradas
         for (const property of declaration.properties) {
 
             properties[property.name] = this.evaluate(
                 property.value
             );
-
         }
 
-        // Guardar el recurso
+        // Guardar el tipo como metadato interno
+        Object.defineProperty(properties, "__resourceType", {
+            value: resourceType,
+            writable: false,
+            enumerable: false,
+            configurable: false
+        });
+
+        // Registrar el recurso
         this.resources.set(declaration.name, properties);
+
+        this.log(
+            "Tipo interno del recurso:",
+            properties.__resourceType
+        );
 
         this.log(
             "Recurso registrado:",
             declaration.name,
             properties
         );
-
     }
+
 
     
     executeMain(declaration) {
@@ -201,37 +249,34 @@ class Interpreter {
     }
 
     
+   
     executeRun(statement) {
 
-        // Obtener el nombre de la tarea
         const taskName = statement.name;
 
-        // Buscar la tarea registrada
         const task = this.tasks.get(taskName);
 
-        // Verificar si la tarea existe
         if (!task) {
-            this.log(
-                "No se encontró la tarea:",
-                taskName
-            );
+            this.log("No se encontró la tarea:", taskName);
             return;
         }
 
-        this.log(
-            "Ejecutando tarea:",
-            taskName
-        );
+        this.log("Ejecutando tarea:", taskName);
 
-        // Por ahora mostrar las instrucciones de la tarea
-       
-        for (const instruction of task.body) {
+        // Crear ámbito local de la tarea
+        this.enterScope();
 
-             this.executeStatement(instruction);
+        try {
 
+            for (const instruction of task.body) {
+                this.executeStatement(instruction);
+            }
+
+        } finally {
+
+            // Eliminar el ámbito al terminar la tarea
+            this.exitScope();
         }
-
-
     }
 
     
@@ -267,28 +312,34 @@ class Interpreter {
                 }
 
             
+            
             case "Identifier": {
 
                 const name = expression.name;
 
-                // Buscar primero entre las variables
+                // Buscar primero en los ámbitos locales
+                for (let i = this.scopes.length - 1; i >= 0; i--) {
+
+                    if (this.scopes[i].has(name)) {
+                        return this.scopes[i].get(name);
+                    }
+                }
+
+                // Buscar en variables globales
                 if (this.variables.has(name)) {
                     return this.variables.get(name);
                 }
 
-                // Buscar entre los recursos registrados
+                // Buscar en recursos registrados
                 if (this.resources.has(name)) {
                     return this.resources.get(name);
                 }
 
-                this.log(
-                    "Identificador no encontrado:",
-                    name
-                );
+                this.log("Identificador no encontrado:", name);
 
                 return null;
             }
-                        
+        
             
             case "BinaryExpression": {
 
@@ -460,12 +511,36 @@ class Interpreter {
 
                 // Obtener el nombre de la función
                 const name = expression.callee.name;
-
                 // Evaluar los argumentos
                 const args = expression.arguments.map(
                     arg => this.evaluate(arg)
                 );
 
+                
+                if (name === "status") {
+
+                    const resource = args[0];
+
+                    if (args.length !== 1) {
+                        this.log("Error: status() esperaba un recurso");
+                        return null;
+                    }
+
+                    const validTypes = ["server", "service", "database"];
+
+                    if (
+                        !resource ||
+                        !validTypes.includes(resource.__resourceType)
+                    ) {
+                        this.log("Error: status() esperaba un recurso válido");
+                        return null;
+                    }
+
+                    // Devolver el estado actual del recurso
+                    return resource.status ?? "stopped";
+                }
+
+                
                 // Función nativa PRINT
                 if (name === "print") {
 
@@ -475,39 +550,36 @@ class Interpreter {
                 }
 
                                 
+                
                 if (name === "length") {
 
-                    const value = args[0];
-
-                    // Comprobar que se recibió un arreglo
-                    if (!Array.isArray(value)) {
-                        this.log(
-                            "Error: length() esperaba un arreglo"
-                        );
+                    if (args.length !== 1) {
+                        this.log("Error: length() esperaba un argumento");
                         return null;
                     }
 
-                    // Devolver la cantidad de elementos
+                    const value = args[0];
+
+                    if (!Array.isArray(value)) {
+                        this.log("Error: length() esperaba un arreglo");
+                        return null;
+                    }
+
                     return value.length;
                 }
 
+
                                 
+                
                 if (name === "start") {
 
                     // Obtener el recurso recibido
                     const resource = args[0];
 
-                    // Verificar que sea un objeto
-                    if (
-                        resource === null ||
-                        resource === undefined ||
-                        typeof resource !== "object" ||
-                        Array.isArray(resource)
-                    ) {
-                        this.log(
-                            "Error: start() esperaba un recurso válido"
-                        );
-                        return null;
+                    // Validar que sea un recurso válido
+                    if (!this.isResourceType(resource, "server")) {
+                        this.log("Error: se esperaba un servidor válido");
+                        return false;
                     }
 
                     // Cambiar el estado del recurso
@@ -517,16 +589,18 @@ class Interpreter {
                         "Recurso iniciado correctamente"
                     );
 
-                    return null;
+                    // Indicar que la operación fue exitosa
+                    return true;
                 }
 
+
+                
                 
                 if (name === "stop") {
 
-                    // Obtener el recurso recibido
                     const resource = args[0];
 
-                    // Verificar que sea un recurso válido
+                    // Validar que sea un recurso válido
                     if (
                         resource === null ||
                         resource === undefined ||
@@ -536,7 +610,8 @@ class Interpreter {
                         this.log(
                             "Error: stop() esperaba un recurso válido"
                         );
-                        return null;
+
+                        return false;
                     }
 
                     // Cambiar el estado del recurso
@@ -546,7 +621,8 @@ class Interpreter {
                         "Recurso detenido correctamente"
                     );
 
-                    return null;
+                    // Operación exitosa
+                    return true;
                 }
 
                 
@@ -564,7 +640,7 @@ class Interpreter {
                         this.log(
                             "Error: restart() esperaba un recurso válido"
                         );
-                        return null;
+                        return false;
                     }
 
                     // Simular el reinicio
@@ -576,163 +652,263 @@ class Interpreter {
 
                     this.log("Recurso reiniciado correctamente");
 
-                    return null;
+                    return true;
                 }
 
+                
                 
                 if (name === "install") {
 
                     const resource = args[0];
                     const software = args[1];
 
-                    // Verificar que recibimos un recurso válido
-                    if (
-                        resource === null ||
-                        resource === undefined ||
-                        typeof resource !== "object" ||
-                        Array.isArray(resource)
-                    ) {
-                        this.log(
-                            "Error: install() esperaba un recurso válido"
-                        );
-                        return null;
+                    // Validar el recurso
+                   if (!this.isResourceType(resource, "server")) {
+                        this.log("Error: se esperaba un servidor válido");
+                        return false;
                     }
 
-                    // Crear el arreglo si todavía no existe
+                    // Validar el nombre del software
+                    if (
+                        typeof software !== "string" ||
+                        software.trim() === ""
+                    ) {
+                        this.log("Error: install() esperaba un nombre de software válido");
+                        return false;
+                    }
+
+                    // Crear la lista de programas instalados
                     if (!Array.isArray(resource.installed)) {
                         resource.installed = [];
                     }
 
-                    // Agregar el software al recurso
+                    // Evitar instalaciones duplicadas
+                    if (resource.installed.includes(software)) {
+                        this.log("El software ya está instalado:", software);
+                        return false;
+                    }
+
+                    // Instalar software
                     resource.installed.push(software);
 
-                    this.log(
-                        "Software instalado correctamente:",
-                        software
-                    );
+                    this.log("Software instalado correctamente:", software);
 
-                    return null;
+                    return true;
                 }
 
+
+                
                 if (name === "uninstall") {
 
                     const resource = args[0];
                     const software = args[1];
 
-                    if (!resource || typeof resource !== "object" || Array.isArray(resource)) {
-                        this.log("Error: uninstall() esperaba un recurso válido");
-                        return null;
+                    // Validar el recurso
+                    if (!this.isResourceType(resource, "server")) {
+                        this.log("Error: se esperaba un servidor válido");
+                        return false;
                     }
 
+                    // Validar el nombre del software
+                    if (
+                        typeof software !== "string" ||
+                        software.trim() === ""
+                    ) {
+                        this.log("Error: uninstall() esperaba un nombre de software válido");
+                        return false;
+                    }
+
+                    // Verificar si existe una lista de software instalado
                     if (!Array.isArray(resource.installed)) {
-                        resource.installed = [];
+                        this.log("Software no encontrado:", software);
+                        return false;
                     }
 
+                    // Buscar el software
                     const index = resource.installed.indexOf(software);
 
-                    if (index !== -1) {
-                        resource.installed.splice(index, 1);
-                        this.log("Software desinstalado correctamente:", software);
-                    } else {
+                    if (index === -1) {
                         this.log("Software no encontrado:", software);
+                        return false;
                     }
 
-                    return null;
-                }    
+                    // Eliminar el software
+                    resource.installed.splice(index, 1);
+
+                    this.log("Software desinstalado correctamente:", software);
+
+                    return true;
+                }
+
                 
+                
+                                
                 if (name === "deploy") {
 
-                    const service = args[0];
+                    const server = args[0];
+                    const service = args[1];
 
-                    if (!service || typeof service !== "object" || Array.isArray(service)) {
-                        this.log("Error: deploy() esperaba un servicio válido");
-                        return null;
+                    // Validar cantidad de argumentos
+                    if (args.length !== 2) {
+                        this.log(
+                            "Error: deploy() esperaba un servidor y un servicio"
+                        );
+                        return false;
                     }
 
+                    // Validar que el primer argumento sea un servidor
+                    if (
+                        !server ||
+                        typeof server !== "object" ||
+                        server.__resourceType !== "server"
+                    ) {
+                        this.log(
+                            "Error: deploy() esperaba un servidor válido"
+                        );
+                        return false;
+                    }
+
+                    // Validar que el segundo argumento sea un servicio
+                    if (
+                        !service ||
+                        typeof service !== "object" ||
+                        service.__resourceType !== "service"
+                    ) {
+                        this.log(
+                            "Error: deploy() esperaba un servicio válido"
+                        );
+                        return false;
+                    }
+
+                    // Simular el despliegue
                     service.status = "deployed";
 
                     this.log("Servicio desplegado correctamente");
 
-                    return null;
+                    return true;
                 }
 
+                
                 if (name === "scale") {
 
                     const service = args[0];
                     const replicas = args[1];
 
-                    if (!service || typeof service !== "object" || Array.isArray(service)) {
+                    // Validar cantidad de argumentos
+                    if (args.length !== 2) {
+                        this.log("Error: scale() esperaba un servicio y una cantidad de réplicas");
+                        return false;
+                    }
+
+                    // Validar el recurso
+                    if (!this.isResourceType(service, "service")) {
                         this.log("Error: scale() esperaba un servicio válido");
-                        return null;
+                        return false;
                     }
 
-                    if (!Number.isInteger(replicas) || replicas < 0) {
+                    // Validar cantidad de réplicas
+                    if (
+                        !Number.isInteger(replicas) ||
+                        replicas < 0
+                    ) {
                         this.log("Error: cantidad de réplicas inválida");
-                        return null;
+                        return false;
                     }
 
+                    // Actualizar el número de réplicas
                     service.replicas = replicas;
 
-                    this.log("Servicio escalado correctamente a:", replicas);
+                    this.log(
+                        "Servicio escalado correctamente a:",
+                        replicas
+                    );
 
-                    return null;
+                    return true;
                 }
 
+
+                
                 if (name === "connect") {
 
                     const server = args[0];
                     const database = args[1];
 
-                    if (
-                        !server || typeof server !== "object" || Array.isArray(server) ||
-                        !database || typeof database !== "object" || Array.isArray(database)
-                    ) {
-                        this.log("Error: connect() esperaba recursos válidos");
-                        return null;
+                    if (args.length !== 2) {
+                        this.log("Error: connect() esperaba dos recursos");
+                        return false;
                     }
 
+                   if (!this.isResourceType(server, "server")) {
+                        this.log("Error: se esperaba un servidor válido");
+                        return false;
+                    }
+
+                    if (!this.isResourceType(database, "database")) {
+                        this.log("Error: se esperaba una base de datos válida");
+                        return false;
+                    }
+                    
+                    // Crear el arreglo de conexiones si todavía no existe
                     if (!Array.isArray(server.connections)) {
                         server.connections = [];
                     }
 
-                    if (!server.connections.includes(database)) {
-                        server.connections.push(database);
-                        this.log("Conexión establecida correctamente");
-                    } else {
+                    // Evitar conexiones duplicadas
+                    if (server.connections.includes(database)) {
                         this.log("La conexión ya existe");
+                        return false;
                     }
 
-                    return null;
+                    // Registrar la conexión
+                    server.connections.push(database);
+
+                    this.log("Conexión establecida correctamente");
+
+                    return true;
+
                 }
 
+
+                                
                 if (name === "disconnect") {
 
                     const server = args[0];
                     const database = args[1];
 
-                    if (
-                        !server || typeof server !== "object" || Array.isArray(server) ||
-                        !database || typeof database !== "object" || Array.isArray(database)
-                    ) {
-                        this.log("Error: disconnect() esperaba recursos válidos");
-                        return null;
+                    if (args.length !== 2) {
+                        this.log("Error: disconnect() esperaba dos recursos");
+                        return false;
                     }
 
+                    if (!this.isResourceType(server, "server")) {
+                        this.log("Error: se esperaba un servidor válido");
+                        return false;
+                    }
+
+                    if (!this.isResourceType(database, "database")) {
+                        this.log("Error: se esperaba una base de datos válida");
+                        return false;
+                    }
+
+                    // Verificar que el servidor tenga conexiones registradas
                     if (!Array.isArray(server.connections)) {
-                        server.connections = [];
+                        this.log("La conexión no existe");
+                        return false;
                     }
-
                     const index = server.connections.indexOf(database);
 
-                    if (index !== -1) {
-                        server.connections.splice(index, 1);
-                        this.log("Conexión eliminada correctamente");
-                    } else {
+                    if (index === -1) {
                         this.log("La conexión no existe");
+                        return false;
                     }
 
-                    return null;
+                    server.connections.splice(index, 1);
+
+                    this.log("Conexión eliminada correctamente");
+
+                    return true;
                 }
+
                 // Funciones definidas por el usuario
                 return this.executeFunction(name, args);
             }
@@ -750,18 +926,42 @@ class Interpreter {
     }
 
     
+    isResourceType(resource, expectedType) {
+        return (
+            resource !== null &&
+            typeof resource === "object" &&
+            !Array.isArray(resource) &&
+            resource.__resourceType === expectedType
+        );
+    }
+
+    
+    
     executeVariableDeclaration(statement) {
 
-        // Obtener nombre de la variable
         const variableName = statement.name;
 
         // Evaluar el valor de la variable
         const value = this.evaluate(statement.value);
 
-        // Guardar la variable
-        this.variables.set(variableName, value);
-        // Guarda el tipo de dato
-        this.variableTypes.set(variableName, statement.dataType);
+        if (this.scopes.length > 0) {
+
+            // Guardar en el ámbito local actual
+            const currentScope = this.scopes[this.scopes.length - 1];
+
+            currentScope.set(variableName, value);
+
+        } else {
+
+            // Guardar en el ámbito global
+            this.variables.set(variableName, value);
+
+            // Guardar el tipo para el reporte
+            this.variableTypes.set(
+                variableName,
+                statement.dataType
+            );
+        }
 
         this.log(
             "Variable almacenada:",
@@ -769,8 +969,8 @@ class Interpreter {
             "=",
             value
         );
-
     }
+
 
    
     executeAssignment(statement) {
@@ -781,7 +981,7 @@ class Interpreter {
         // Asignación normal: contador = 5;
         if (statement.name !== undefined) {
 
-            this.variables.set(statement.name, value);
+            this.setVariable(statement.name, value);
 
             this.log(
                 "Variable actualizada:",
@@ -884,6 +1084,7 @@ class Interpreter {
 
     
         
+    
     executeIf(statement) {
 
         const condition = this.evaluate(statement.condition);
@@ -898,24 +1099,32 @@ class Interpreter {
             return;
         }
 
-        for (const instruction of branch) {
+        // Crear un ámbito local para la rama seleccionada
+        this.enterScope();
 
-             const signal = this.executeStatement(instruction);
+        try {
 
-            //if (signal === "break") {
-              //  return "break";
-            //}
-           if (
-                signal === "break" ||
-                signal === "continue" ||
-                (signal && signal.type === "return")
-            ) {
-                return signal;
+            for (const instruction of branch) {
+
+                const signal = this.executeStatement(instruction);
+
+                // Propagar break, continue y return
+                if (
+                    signal === "break" ||
+                    signal === "continue" ||
+                    (signal && signal.type === "return")
+                ) {
+                    return signal;
+                }
             }
 
-        }
+        } finally {
 
+            // Eliminar el ámbito al salir del bloque
+            this.exitScope();
+        }
     }
+
 
 
     
@@ -936,13 +1145,11 @@ class Interpreter {
 
 
             case "WhileStatement":
-                this.executeWhile(statement);
-                break;
+                 return this.executeWhile(statement);
 
                 
             case "ForStatement":
-                this.executeFor(statement);
-                break;
+                 return this.executeFor(statement);
 
             case "BreakStatement":
                 return "break";
@@ -982,99 +1189,145 @@ class Interpreter {
     
     
     
+    
     executeWhile(statement) {
 
         this.log("===== EJECUTANDO WHILE =====");
 
         while (this.evaluate(statement.condition)) {
 
-            for (const instruction of statement.body) {
+            // Crear ámbito local para esta iteración
+            this.enterScope();
 
-                const signal = this.executeStatement(instruction);
+            let signal = null;
 
-                if (signal === "break") {
+            try {
 
-                    this.log(
-                        "Ciclo WHILE interrumpido por BREAK"
-                    );
+                for (const instruction of statement.body) {
 
-                    return;
+                    signal = this.executeStatement(instruction);
+
+                    // Detener la ejecución del cuerpo ante
+                    // break, continue o return
+                    if (
+                        signal === "break" ||
+                        signal === "continue" ||
+                        (signal && signal.type === "return")
+                    ) {
+                        break;
+                    }
                 }
 
-                if (signal === "continue") {
+            } finally {
 
-                    this.log(
-                        "Saltando a la siguiente iteración del WHILE"
-                    );
-
-                    break;
-                }
-
+                // Eliminar las variables locales de la iteración
+                this.exitScope();
             }
 
+            // Procesar las señales después de cerrar el ámbito
+            if (signal === "break") {
+
+                this.log(
+                    "Ciclo WHILE interrumpido por BREAK"
+                );
+
+                break;
+            }
+
+            if (signal === "continue") {
+
+                this.log(
+                    "Saltando a la siguiente iteración del WHILE"
+                );
+
+                continue;
+            }
+
+            // Propagar el retorno de una función
+            if (signal && signal.type === "return") {
+                return signal;
+            }
         }
-
     }
-
-
-
+   
     
     
     executeFor(statement) {
 
         this.log("===== EJECUTANDO FOR =====");
 
-        // Ejecutar la inicialización
-        if (statement.initialization) {
-            this.executeStatement(statement.initialization);
-        }
+        // Ámbito general del FOR
+        this.enterScope();
 
-        // Evaluar la condición antes de cada iteración
-        while (
-            !statement.condition ||
-            this.evaluate(statement.condition)
-        ) {
+        try {
 
-            let shouldBreak = false;
-            let shouldContinue = false;
+            // Inicialización del contador
+            if (statement.initialization) {
+                this.executeStatement(statement.initialization);
+            }
 
-            // Ejecutar las instrucciones del ciclo
-            for (const instruction of statement.body) {
+            // Evaluar condición antes de cada iteración
+            while (
+                !statement.condition ||
+                this.evaluate(statement.condition)
+            ) {
 
-                const signal = this.executeStatement(instruction);
+                let signal = null;
 
+                // Ámbito local de esta iteración
+                this.enterScope();
+
+                try {
+
+                    for (const instruction of statement.body) {
+
+                        signal = this.executeStatement(instruction);
+
+                        if (
+                            signal === "break" ||
+                            signal === "continue" ||
+                            (signal && signal.type === "return")
+                        ) {
+                            break;
+                        }
+                    }
+
+                } finally {
+
+                    // Eliminar variables locales de la iteración
+                    this.exitScope();
+                }
+
+                // BREAK termina el FOR
                 if (signal === "break") {
-                    shouldBreak = true;
+
+                    this.log("Ciclo FOR interrumpido por BREAK");
                     break;
+                }
+
+                // RETURN se propaga a la función
+                if (signal && signal.type === "return") {
+                    return signal;
+                }
+
+                // Actualización del contador
+                // También se ejecuta después de CONTINUE
+                if (statement.update) {
+                    this.executeStatement(statement.update);
                 }
 
                 if (signal === "continue") {
-                    shouldContinue = true;
-                    break;
+
+                    this.log("Saltando a la siguiente iteración del FOR");
+                    continue;
                 }
-
             }
 
-            // BREAK termina completamente el ciclo
-            if (shouldBreak) {
-                this.log("Ciclo FOR interrumpido por BREAK");
-                break;
-            }
+        } finally {
 
-            // Actualizar la variable de control
-            if (statement.update) {
-                this.executeStatement(statement.update);
-            }
-
-            // CONTINUE ya saltó el resto del cuerpo.
-            // La siguiente iteración evaluará la condición.
-            if (shouldContinue) {
-                this.log("Saltando a la siguiente iteración del FOR");
-                continue;
-            }
-
+            // Eliminar el ámbito general del FOR
+            this.exitScope();
         }
-
     }
 
 
@@ -1094,6 +1347,53 @@ class Interpreter {
         console.log(...args);
 
     }
+
+    
+    // Crear un nuevo ámbito local
+    enterScope() {
+        this.scopes.push(new Map());
+    }
+
+    // Salir del ámbito local actual
+    exitScope() {
+        this.scopes.pop();
+    }
+
+    // Buscar una variable, primero local y luego global
+    getVariable(name) {
+
+        for (let i = this.scopes.length - 1; i >= 0; i--) {
+            if (this.scopes[i].has(name)) {
+                return this.scopes[i].get(name);
+            }
+        }
+
+        if (this.variables.has(name)) {
+            return this.variables.get(name);
+        }
+
+        this.log("Identificador no encontrado:", name);
+        return null;
+    }
+
+    // Actualizar una variable en el ámbito donde existe
+    setVariable(name, value) {
+
+        for (let i = this.scopes.length - 1; i >= 0; i--) {
+            if (this.scopes[i].has(name)) {
+                this.scopes[i].set(name, value);
+                return;
+            }
+        }
+
+        if (this.variables.has(name)) {
+            this.variables.set(name, value);
+            return;
+        }
+
+        this.log("Variable no declarada:", name);
+    }
+
 
 
 
