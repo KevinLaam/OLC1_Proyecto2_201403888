@@ -7,10 +7,13 @@ class Interpreter {
 
         //para reporte 
         this.variableTypes = new Map();
-        
+        // Historial de símbolos para el reporte
+        this.symbolTable = [];
+
         // Pila de ámbitos locales
         this.scopes = [];
-
+        // Nombres de los ámbitos activos para el reporte
+        this.scopeNames = [];
 
         this.output = [];
 
@@ -21,6 +24,7 @@ class Interpreter {
 
         this.functions = new Map();
 
+        
        
     }
 
@@ -123,17 +127,38 @@ class Interpreter {
         // Crear el ámbito local de la función
         this.enterScope();
 
+        // Registrar el ámbito de la función para el reporte
+        this.scopeNames.push(`Función: ${name}`);
+
         try {
 
             const currentScope =
                 this.scopes[this.scopes.length - 1];
 
-            // Asignar argumentos a los parámetros
-            for (let i = 0; i < funcion.parameters.length; i++) {
+           for (let i = 0; i < funcion.parameters.length; i++) {
 
                 const parameter = funcion.parameters[i];
 
+                // Guardar el parámetro en el ámbito local
                 currentScope.set(parameter.name, args[i]);
+
+                // Registrar el parámetro en la tabla de símbolos
+                this.symbolTable.push({
+                    name: parameter.name,
+                    dataType: parameter.dataType,
+                    value: args[i],
+                    scope: `Función: ${name}`
+                });
+
+                 // Mensaje temporal de diagnóstico
+                this.log(
+                    "Parámetro registrado en símbolos:",
+                    parameter.name,
+                    "=",
+                    args[i]
+                );
+            
+                            
             }
 
             // Ejecutar las instrucciones
@@ -149,12 +174,15 @@ class Interpreter {
                 }
             }
 
+            
             return null;
 
         } finally {
 
             // Cerrar el ámbito de la función
             this.exitScope();
+
+            this.scopeNames.pop();
 
             // Restaurar los ámbitos del llamador
             this.scopes = previousScopes;
@@ -266,6 +294,9 @@ class Interpreter {
         // Crear ámbito local de la tarea
         this.enterScope();
 
+        // Registrar el nombre del ámbito actual
+        this.scopeNames.push(`Tarea: ${taskName}`);
+
         try {
 
             for (const instruction of task.body) {
@@ -276,6 +307,9 @@ class Interpreter {
 
             // Eliminar el ámbito al terminar la tarea
             this.exitScope();
+
+            // Eliminar el nombre del ámbito al terminar la tarea
+            this.scopeNames.pop();
         }
     }
 
@@ -944,6 +978,8 @@ class Interpreter {
         // Evaluar el valor de la variable
         const value = this.evaluate(statement.value);
 
+        let scopeName = "Global";
+
         if (this.scopes.length > 0) {
 
             // Guardar en el ámbito local actual
@@ -951,17 +987,30 @@ class Interpreter {
 
             currentScope.set(variableName, value);
 
+            //scopeName = "Local";
+            scopeName = this.scopeNames.length > 0
+            ? this.scopeNames[this.scopeNames.length - 1]
+            : "Local";
+
         } else {
 
             // Guardar en el ámbito global
             this.variables.set(variableName, value);
 
-            // Guardar el tipo para el reporte
+            // Conservar el tipo para el reporte existente
             this.variableTypes.set(
                 variableName,
                 statement.dataType
             );
         }
+
+        // Registrar el símbolo independientemente del ámbito
+        this.symbolTable.push({
+            name: variableName,
+            dataType: statement.dataType,
+            value: value,
+            scope: scopeName
+        });
 
         this.log(
             "Variable almacenada:",
@@ -972,6 +1021,7 @@ class Interpreter {
     }
 
 
+
    
     executeAssignment(statement) {
 
@@ -979,19 +1029,69 @@ class Interpreter {
         const value = this.evaluate(statement.value);
 
         // Asignación normal: contador = 5;
+        
         if (statement.name !== undefined) {
 
-            this.setVariable(statement.name, value);
+            const variableName = statement.name;
+
+            // Buscar la variable en los ámbitos locales,
+            // comenzando por el más interno.
+            for (let i = this.scopes.length - 1; i >= 0; i--) {
+
+                const currentScope = this.scopes[i];
+
+                if (currentScope.has(variableName)) {
+
+                    currentScope.set(variableName, value);
+
+                    const scopeName = this.scopeNames[i] || "Local";
+
+                    this.updateSymbol(
+                        variableName,
+                        value,
+                        scopeName
+                    );
+
+                    this.log(
+                        "Variable actualizada:",
+                        variableName,
+                        "=",
+                        value
+                    );
+
+                    return;
+                }
+            }
+
+            // Si no existe localmente, buscarla globalmente
+            if (this.variables.has(variableName)) {
+
+                this.variables.set(variableName, value);
+
+                this.updateSymbol(
+                    variableName,
+                    value,
+                    "Global"
+                );
+
+                this.log(
+                    "Variable actualizada:",
+                    variableName,
+                    "=",
+                    value
+                );
+
+                return;
+            }
 
             this.log(
-                "Variable actualizada:",
-                statement.name,
-                "=",
-                value
+                "Variable no encontrada:",
+                variableName
             );
 
             return;
         }
+
 
         // Asignación a un elemento de arreglo
         if (
@@ -1393,6 +1493,25 @@ class Interpreter {
 
         this.log("Variable no declarada:", name);
     }
+
+        
+    updateSymbol(name, value, scopeName) {
+
+        // Buscar desde el último registro
+        for (let i = this.symbolTable.length - 1; i >= 0; i--) {
+
+            const symbol = this.symbolTable[i];
+
+            if (
+                symbol.name === name &&
+                symbol.scope === scopeName
+            ) {
+                symbol.value = value;
+                return;
+            }
+        }
+    }
+
 
 
 

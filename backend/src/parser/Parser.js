@@ -51,6 +51,7 @@ class Parser {
         return false;
     }
 
+   
     consume(type, message) {
 
         if (this.check(type)) {
@@ -61,17 +62,25 @@ class Parser {
             return token;
         }
 
-        const token = this.currentToken();
+        // Obtener el token actual
+        let token = this.currentToken();
 
+        // Si llegamos al final, usar el último token disponible
+        if (!token && this.tokens.length > 0) {
+            token = this.tokens[this.tokens.length - 1];
+        }
+
+        // Registrar el error sintáctico
         this.errors.push({
             type: "SINTACTICO",
             description: message,
-            line: token ? token.line : -1,
-            column: token ? token.column : -1
+            line: token ? token.line : 1,
+            column: token ? token.column : 1
         });
 
         return null;
     }
+
 
     parseServer() {
 
@@ -1668,16 +1677,29 @@ class Parser {
             return this.parseRun();
         }
 
-        // Instrucción no reconocida
+         // Instrucción no reconocida
         const token = this.currentToken();
 
-        this.errors.push({
-            type: "SINTACTICO",
-            description: "Instrucción no reconocida",
-            line: token ? token.line : -1,
-            column: token ? token.column : -1
-        });
+        // Comprobar si ya existe un error sintáctico
+        // en la misma posición.
+        const errorExistente = token && this.errors.some(error =>
+            error.type === "SINTACTICO" &&
+            error.line === token.line &&
+            error.column === token.column
+        );
 
+        // Evitar registrar un error redundante
+        if (!errorExistente) {
+            this.errors.push({
+                type: "SINTACTICO",
+                description: "Instrucción no reconocida",
+                line: token ? token.line : -1,
+                column: token ? token.column : -1
+            });
+        }
+
+        // Avanzar para evitar quedar atrapados
+        // en el mismo token.
         if (!this.isAtEnd()) {
             this.advance();
         }

@@ -439,6 +439,7 @@ main {
                       <th>Nombre</th>
                       <th>Tipo</th>
                       <th>Valor</th>
+                      <th>Ámbito</th>
                     </tr>
                   </thead>
 
@@ -453,6 +454,7 @@ main {
                             ? JSON.stringify(symbol.value)
                             : String(symbol.value)}
                         </td>
+                        <td>{symbol.scope || "Global"}</td>
                       </tr>
                     ))}
                   </tbody>

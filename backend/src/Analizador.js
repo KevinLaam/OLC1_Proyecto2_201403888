@@ -59,12 +59,8 @@ class Analizador {
             ...properties
         }));
         //para reporte de tabla de simbolos
-        const symbols = Array.from(interpreter.variables.entries())
-        .map(([name, value]) => ({
-            name,
-            dataType: interpreter.variableTypes.get(name) || "unknown",
-            value
-        }));
+       // Obtener todos los símbolos registrados durante la ejecución
+        const symbols = interpreter.symbolTable;
 
 
 
